@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
+use std::fmt::Write;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
@@ -22,12 +23,8 @@ impl TempStats {
     }
 
     fn update(&mut self, temp: f64) {
-        if temp < self.min {
-            self.min = temp;
-        }
-        if temp > self.max {
-            self.max = temp;
-        }
+        self.min = self.min.min(temp);
+        self.max = self.max.max(temp);
         self.sum += temp;
         self.count += 1;
     }
@@ -37,41 +34,46 @@ impl TempStats {
     }
 }
 
-fn run() -> std::io::Result<()> {
+fn run() -> Result<(), std::io::Error> {
     let file = File::open("data/measurements.txt")?;
-    let reader = BufReader::new(file);
+    let mut reader = BufReader::new(file);
+    let mut data: FxHashMap<String, TempStats> = FxHashMap::default();
+    let mut line = String::new();
 
-    let mut data: HashMap<String, TempStats> = HashMap::new();
-
-    for line in reader.lines() {
-        let line = line?;
-        if let Some((station, temp_str)) = line.split_once(';') {
+    while reader.read_line(&mut line)? != 0 {
+        if let Some((station_raw, temp_str)) = line.trim_end().split_once(';') {
+            let station = station_raw.trim();
             if let Ok(temp) = temp_str.trim().parse::<f64>() {
-                data.entry(station.trim().to_string())
-                    .and_modify(|stats| stats.update(temp))
-                    .or_insert_with(|| TempStats::new(temp));
+                if let Some(stats) = data.get_mut(station) {
+                    stats.update(temp);
+                } else {
+                    data.insert(station.to_string(), TempStats::new(temp));
+                }
             }
         }
+
+        line.clear();
     }
 
     let mut stations: Vec<_> = data.into_iter().collect();
     stations.sort_by_key(|(name, _)| name.clone());
 
-    let output: Vec<String> = stations
-        .into_iter()
-        .map(|(station, stats)| {
-            format!(
-                
-                "{}: {:.1}/{:.1}/{:.1}",
-                station,
-                stats.min,
-                stats.mean(),
-                stats.max
-            )
-        })
-        .collect();
-
-    println!("{}", output.join(", "));
+    let mut out = String::new();
+    for (i, (station, stats)) in stations.into_iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        write!(
+            &mut out,
+            "{}: {:.1}/{:.1}/{:.1}",
+            station,
+            stats.min,
+            stats.mean(),
+            stats.max
+        )
+        .unwrap();
+    }
+    println!("{}", out);
 
     Ok(())
 }
