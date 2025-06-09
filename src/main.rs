@@ -1,7 +1,6 @@
-use rustc_hash::FxHashMap;
-use std::fmt::Write;
+use ahash::AHashMap;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{self, BufRead, BufReader, Write};
 use std::time::Instant;
 
 #[derive(Debug)]
@@ -37,13 +36,12 @@ impl TempStats {
 fn run() -> Result<(), std::io::Error> {
     let file = File::open("data/measurements.txt")?;
     let mut reader = BufReader::new(file);
-    let mut data: FxHashMap<String, TempStats> = FxHashMap::default();
+    let mut data: AHashMap<String, TempStats> = AHashMap::default();
     let mut line = String::new();
 
     while reader.read_line(&mut line)? != 0 {
-        if let Some((station_raw, temp_str)) = line.trim_end().split_once(';') {
-            let station = station_raw.trim();
-            if let Ok(temp) = temp_str.trim().parse::<f64>() {
+        if let Some((station, temp_str)) = line.split_once(';') {
+            if let Ok(temp) = fast_float::parse(&temp_str[..temp_str.len() - 1]) {
                 if let Some(stats) = data.get_mut(station) {
                     stats.update(temp);
                 } else {
@@ -58,13 +56,19 @@ fn run() -> Result<(), std::io::Error> {
     let mut stations: Vec<_> = data.into_iter().collect();
     stations.sort_by_key(|(name, _)| name.clone());
 
-    let mut out = String::new();
-    for (i, (station, stats)) in stations.into_iter().enumerate() {
-        if i > 0 {
-            out.push_str(", ");
+    let stdout = io::stdout();
+    let mut handle = stdout.lock();
+    let mut first = true;
+
+    for (station, stats) in stations {
+        if !first {
+            write!(handle, ", ").unwrap();
+        } else {
+            first = false;
         }
+
         write!(
-            &mut out,
+            handle,
             "{}: {:.1}/{:.1}/{:.1}",
             station,
             stats.min,
@@ -73,7 +77,8 @@ fn run() -> Result<(), std::io::Error> {
         )
         .unwrap();
     }
-    println!("{}", out);
+
+    writeln!(handle).unwrap();
 
     Ok(())
 }

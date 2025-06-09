@@ -11,4 +11,6 @@ lto = "fat"
 debug = true
 
 [dependencies]
+ahash = "0.8.12"
+fast-float = "0.2.0"
 rustc-hash = "2.1.1"
