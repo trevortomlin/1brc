@@ -1,7 +1,9 @@
 use ahash::AHashMap;
+use smol_str::SmolStr;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::time::Instant;
+use memchr::memchr;
 
 #[derive(Debug)]
 struct TempStats {
@@ -36,16 +38,19 @@ impl TempStats {
 fn run() -> Result<(), std::io::Error> {
     let file = File::open("data/measurements.txt")?;
     let mut reader = BufReader::new(file);
-    let mut data: AHashMap<String, TempStats> = AHashMap::default();
+    let mut data: AHashMap<SmolStr, TempStats> = AHashMap::default();
     let mut line = String::new();
 
     while reader.read_line(&mut line)? != 0 {
-        if let Some((station, temp_str)) = line.split_once(';') {
-            if let Ok(temp) = fast_float::parse(&temp_str[..temp_str.len() - 1]) {
+        if let Some(idx) = memchr(b';', line.as_bytes()) {
+            let (station, temp_str) = line.split_at(idx);
+            let temp_str = &temp_str[1..temp_str.len()-1];
+
+            if let Ok(temp) = fast_float::parse(temp_str) {
                 if let Some(stats) = data.get_mut(station) {
                     stats.update(temp);
                 } else {
-                    data.insert(station.to_string(), TempStats::new(temp));
+                    data.insert(SmolStr::new(station), TempStats::new(temp));
                 }
             }
         }
@@ -54,7 +59,7 @@ fn run() -> Result<(), std::io::Error> {
     }
 
     let mut stations: Vec<_> = data.into_iter().collect();
-    stations.sort_by_key(|(name, _)| name.clone());
+    stations.sort_by(|(a, _), (b, _)| a.cmp(b));
 
     let stdout = io::stdout();
     let mut handle = stdout.lock();
